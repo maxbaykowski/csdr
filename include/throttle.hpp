@@ -28,7 +28,7 @@ namespace Csdr {
     template <typename T>
     class Throttle: public Module<T, T> {
         public:
-            Throttle(size_t rate, size_t chunkSize = 8096);
+            Throttle(size_t rate, size_t chunkSize = 8192);
             ~Throttle() override;
             // processing is asynchronous, so this will always be false
             bool canProcess() override { return false; };
