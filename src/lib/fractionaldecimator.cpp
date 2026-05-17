@@ -65,7 +65,10 @@ FractionalDecimator<T>::~FractionalDecimator() {
 template <typename T>
 bool FractionalDecimator<T>::canProcess() {
     std::lock_guard<std::mutex> lock(this->processMutex);
-    size_t size = std::min(this->reader->available(), (size_t) ceilf(this->writer->writeable() / rate));
+    size_t size = std::min(
+        this->reader->available(),
+        static_cast<size_t>(ceil(static_cast<double>(this->writer->writeable()) * rate))
+    );
     size_t filterLen = filter != nullptr ? filter->getOverhead() : 0;
     return ceilf(where) + num_poly_points + filterLen < size;
 }
@@ -77,15 +80,18 @@ void FractionalDecimator<T>::process() {
     //It applies polynomial interpolation to samples that are taken into consideration from a pre-filtered input.
     //The pre-filter can be switched off by applying filter = nullptr.
     int oi = 0; //output index
-    int index_high, index;
-    size_t size = std::min(this->reader->available(), (size_t) ceilf(this->writer->writeable() / rate));
+    int index_high;
+    size_t size = std::min(
+        this->reader->available(),
+        static_cast<size_t>(ceil(static_cast<double>(this->writer->writeable()) * rate))
+    );
     size_t filterLen = filter != nullptr ? filter->getOverhead() : 0;
     T* input = this->reader->getReadPointer();
     T* output = this->writer->getWritePointer();
     //we optimize to calculate ceilf(where) only once every iteration, so we do it here:
     while ((index_high = ceilf(where)) + num_poly_points + filterLen < size) {
         // num_poly_points above is theoretically more than we could have here, but this makes the spectrum look good
-        index = index_high - 1;
+        int index = index_high - 1;
         int id = 0;
         float xwhere = where - index;
         for (int xi = xifirst; xi <= xilast; xi++) {
@@ -110,7 +116,10 @@ void FractionalDecimator<T>::process() {
         where += rate;
     }
 
-    int input_processed = index + xifirst;
+    size_t input_processed = std::min(
+        size,
+        static_cast<size_t>(std::max(0, static_cast<int>(ceilf(where)) - 1))
+    );
     where -= input_processed;
 
     this->reader->advance(input_processed);

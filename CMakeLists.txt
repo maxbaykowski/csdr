@@ -27,6 +27,7 @@ endif()
 
 project (csdr VERSION 0.19.0)
 add_definitions(-DVERSION="${PROJECT_VERSION}-dev")
+enable_testing()
 
 enable_language(CXX)
 set(CMAKE_CXX_STANDARD 11)
@@ -86,3 +87,4 @@ SET(CMAKE_C_FLAGS_RELWITHDEBINFO "-g -O3 -DNDEBUG")
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 add_subdirectory(src)
+add_subdirectory(tests)
