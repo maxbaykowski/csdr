@@ -36,6 +36,13 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 using namespace Csdr;
 
+namespace {
+    template <typename T, size_t N>
+    size_t predefinedTapCount(T (&)[N]) {
+        return N;
+    }
+}
+
 WfmDeemphasis::WfmDeemphasis(unsigned int sampleRate, float tau): dt(1.0f / sampleRate), alpha(dt / tau + dt) {}
 
 void WfmDeemphasis::process(float *input, float *output, size_t size) {
@@ -58,15 +65,15 @@ FirFilter<float, float>* NfmDeephasis::getFilter(unsigned int sampleRate) {
     switch (sampleRate) {
         // we only cover selected sample rates. see predefined.h for details.
         case 8000:
-            return new FirFilter<float, float>(deemphasis_nfm_predefined_fir_8000, 79);
+            return new FirFilter<float, float>(deemphasis_nfm_predefined_fir_8000, predefinedTapCount(deemphasis_nfm_predefined_fir_8000));
         case 11025:
-            return new FirFilter<float, float>(deemphasis_nfm_predefined_fir_11025, 79);
+            return new FirFilter<float, float>(deemphasis_nfm_predefined_fir_11025, predefinedTapCount(deemphasis_nfm_predefined_fir_11025));
         case 12000:
-            return new FirFilter<float, float>(deemphasis_nfm_predefined_fir_12000, 79);
+            return new FirFilter<float, float>(deemphasis_nfm_predefined_fir_12000, predefinedTapCount(deemphasis_nfm_predefined_fir_12000));
         case 44100:
-            return new FirFilter<float, float>(deemphasis_nfm_predefined_fir_44100, 199);
+            return new FirFilter<float, float>(deemphasis_nfm_predefined_fir_44100, predefinedTapCount(deemphasis_nfm_predefined_fir_44100));
         case 48000:
-            return new FirFilter<float, float>(deemphasis_nfm_predefined_fir_48000, 199);
+            return new FirFilter<float, float>(deemphasis_nfm_predefined_fir_48000, predefinedTapCount(deemphasis_nfm_predefined_fir_48000));
         default:
             throw std::runtime_error("invalid sample rate");
     }
