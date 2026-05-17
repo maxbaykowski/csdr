@@ -208,7 +208,7 @@ Different parts of the world use different pre-emphasis filters for FM broadcast
 
 When used in `--nfm` mode, it uses fixed filters so it works only on predefined sample rates. See the file `src/lib/predefined.h` for the available rates and information on how to add others.
 
-### amdemod_cf
+### amdemod
 
 Syntax: 
 
