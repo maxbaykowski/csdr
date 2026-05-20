@@ -19,21 +19,37 @@ along with libcsdr.  If not, see <https://www.gnu.org/licenses/>.
 
 #include "dcblock.hpp"
 
+#include <algorithm>
 #include <cmath>
 
 using namespace Csdr;
 
-#define R 0.998f
-#define GAIN ((1 + R) / 2)
+DcBlock::DcBlock(float sampleRate, float cutoff, float fadeTime):
+    estimateAlpha(alphaFor(sampleRate, cutoff)),
+    fadeAlpha(alphaFor(sampleRate, 1.0f / clampPositive(fadeTime, 0.05f)))
+{}
+
+float DcBlock::clampPositive(float value, float fallback) {
+    if (!std::isfinite(value) || value <= 0.0f) return fallback;
+    return value;
+}
+
+float DcBlock::alphaFor(float sampleRate, float hz) {
+    sampleRate = clampPositive(sampleRate, 48000.0f);
+    hz = clampPositive(hz, 15.0f);
+    float normalized = 1.0f - std::exp(-2.0f * static_cast<float>(M_PI) * hz / sampleRate);
+    return std::min(std::max(normalized, 0.0f), 1.0f);
+}
 
 void DcBlock::process(float *input, float *output, size_t length) {
     for (size_t i = 0; i < length; i++) {
-        // dc block filter implementation according to https://www.dsprelated.com/freebooks/filters/DC_Blocker.html
         float x = input[i];
         if (std::isnan(x)) x = 0.0f;
-        float y = GAIN * (x - xm1) + R * ym1;
-        xm1 = x;
-        ym1 = y;
-        output[i] = y;
+
+        // Track the underlying offset with a sample-rate-aware low-pass, then
+        // fade the applied correction to avoid abrupt state changes.
+        dcEstimate += estimateAlpha * (x - dcEstimate);
+        appliedDc += fadeAlpha * (dcEstimate - appliedDc);
+        output[i] = x - appliedDc;
     }
 }

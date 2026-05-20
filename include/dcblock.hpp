@@ -25,11 +25,17 @@ namespace Csdr {
 
     class DcBlock : public Csdr::AnyLengthModule<float, float> {
         public:
+            explicit DcBlock(float sampleRate = 48000.0f, float cutoff = 15.0f, float fadeTime = 0.05f);
             void process(float *input, float *output, size_t length) override;
 
         private:
-            float xm1 = 0.0f;
-            float ym1 = 0.0f;
+            static float clampPositive(float value, float fallback);
+            static float alphaFor(float sampleRate, float hz);
+
+            float estimateAlpha;
+            float fadeAlpha;
+            float dcEstimate = 0.0f;
+            float appliedDc = 0.0f;
     };
 
 }

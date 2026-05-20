@@ -70,6 +70,10 @@ namespace Csdr {
     class DcBlockCommand: public Command {
         public:
             DcBlockCommand();
+        private:
+            float sampleRate = 48000.0f;
+            float cutoff = 15.0f;
+            float fadeTime = 0.05f;
     };
 
     class ConvertCommand: public Command {

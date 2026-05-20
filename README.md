@@ -180,9 +180,15 @@ Internally, this function uses trigonometric addition formulas to generate sine 
 
 Syntax: 
 
-    csdr dcblock
+    csdr dcblock [sample_rate] [--cutoff=15] [--fade=0.05]
 
-This is a DC blocking IIR filter.
+This is a DC blocking filter with sample-rate-aware tuning.
+
+The default behavior is tuned for audio-rate streams. For high-rate I/Q streams, pass the actual `sample_rate` so the same cutoff is preserved in Hz instead of scaling with the sample rate.
+
+`--cutoff` controls how aggressively DC is removed, in Hz.
+
+`--fade` controls how quickly changes in the estimated DC offset are applied to the output, in seconds. Increasing it makes state changes smoother and reduces the chance of narrowband near-center content being treated like DC.
 
 ----
 

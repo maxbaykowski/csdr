@@ -1,4 +1,5 @@
 #include "deemphasis.hpp"
+#include "dcblock.hpp"
 #include "filter.hpp"
 #include "fir.hpp"
 #include "fractionaldecimator.hpp"
@@ -143,9 +144,57 @@ static bool test_nfm_deemphasis_8000_stays_bounded() {
     return true;
 }
 
+static bool test_dcblock_audio_removes_dc() {
+    DcBlock dcblock(48000.0f, 15.0f, 0.05f);
+    std::vector<float> input(48000, 1.0f);
+    std::vector<float> output(input.size(), 0.0f);
+    dcblock.process(input.data(), output.data(), input.size());
+
+    if (!std::isfinite(output.back()) || std::abs(output.back()) > 0.01f) {
+        std::cerr << "dcblock regression: audio-rate DC did not decay as expected\n";
+        return false;
+    }
+
+    return true;
+}
+
+static bool test_dcblock_high_rate_preserves_near_center_tone() {
+    const float sampleRate = 2400000.0f;
+    const float toneHz = 1000.0f;
+    DcBlock dcblock(sampleRate, 15.0f, 0.05f);
+
+    std::vector<float> input(240000, 0.0f);
+    std::vector<float> output(input.size(), 0.0f);
+    for (size_t i = 0; i < input.size(); i++) {
+        input[i] = 0.25f + std::sin(2.0f * static_cast<float>(M_PI) * toneHz * i / sampleRate);
+    }
+
+    dcblock.process(input.data(), output.data(), input.size());
+
+    double energy = 0.0;
+    size_t start = input.size() / 2;
+    for (size_t i = start; i < output.size(); i++) {
+        if (!std::isfinite(output[i])) {
+            std::cerr << "dcblock regression: high-rate output contains non-finite samples\n";
+            return false;
+        }
+        energy += output[i] * output[i];
+    }
+
+    double rms = std::sqrt(energy / (output.size() - start));
+    if (rms < 0.5) {
+        std::cerr << "dcblock regression: high-rate near-center tone was attenuated too heavily\n";
+        return false;
+    }
+
+    return true;
+}
+
 int main() {
     if (!test_lowpass_single_output_progress()) return EXIT_FAILURE;
     if (!test_fractionaldecimator_prefilter_high_rate_progress()) return EXIT_FAILURE;
     if (!test_nfm_deemphasis_8000_stays_bounded()) return EXIT_FAILURE;
+    if (!test_dcblock_audio_removes_dc()) return EXIT_FAILURE;
+    if (!test_dcblock_high_rate_preserves_near_center_tone()) return EXIT_FAILURE;
     return EXIT_SUCCESS;
 }

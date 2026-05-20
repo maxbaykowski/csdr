@@ -214,8 +214,11 @@ AmdemodCommand::AmdemodCommand(): Command("amdemod", "AM demodulation") {
 }
 
 DcBlockCommand::DcBlockCommand(): Command("dcblock", "DC block") {
+    add_option("sample_rate", sampleRate, "Sample rate")->default_val(sampleRate);
+    add_option("-c,--cutoff", cutoff, "DC blocking cutoff frequency in Hz", true);
+    add_option("--fade", fadeTime, "Fade time in seconds for applying DC estimate changes", true);
     callback( [this] () {
-        runModule(new DcBlock());
+        runModule(new DcBlock(sampleRate, cutoff, fadeTime));
     });
 }
 
