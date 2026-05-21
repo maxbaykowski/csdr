@@ -25,25 +25,93 @@ This animation shows the Gardner timing recovery algorithm in `csdr` locking on 
 Installation
 ------------
 
-The OpenWebRX project is hosting csdr packages in their repositories. Please click the respective link for [Debian](https://www.openwebrx.de/download/debian.php) or [Ubuntu](https://www.openwebrx.de/download/ubuntu.php).
+To install my fork of CSDR, you'll need to build it from source.. This should be relatively easy if you follow the steps below, depending on your distribution.
 
-How to compile from source
---------------------------
+Build dependencies
+------------------
 
+### Debian
+
+Install build dependencies:
+
+```bash
+sudo apt update
+sudo apt install build-essential cmake pkg-config libfftw3-dev libsamplerate0-dev
 ```
-mkdir build
-cd build
-cmake ..
-make
-sudo make install
+
+Install runtime dependencies:
+
+```bash
+sudo apt install libfftw3-single3 libsamplerate0
+```
+
+### Fedora
+
+Install build dependencies:
+
+```bash
+sudo dnf install gcc-c++ make cmake pkgconf-pkg-config fftw-devel libsamplerate-devel
+```
+
+Install runtime dependencies:
+
+```bash
+sudo dnf install fftw-libs-single libsamplerate
+```
+
+### Arch Linux
+
+Install build dependencies:
+
+```bash
+sudo pacman -Syu base-devel cmake fftw libsamplerate
+```
+
+If you want `pkg-config` explicitly listed:
+
+```bash
+sudo pacman -Syu base-devel cmake pkgconf fftw libsamplerate
+```
+
+Install runtime dependencies:
+
+```bash
+sudo pacman -Syu fftw libsamplerate
+```
+
+Build and install
+-----------------
+
+Configure the build directory:
+
+```bash
+cmake -S . -B build
+```
+
+Compile:
+
+```bash
+make -C build
+```
+
+Install:
+
+```bash
+sudo make -C build install
 sudo ldconfig
 ```
 
-The project was only tested on Linux. It has the following dependencies: `libfftw3-dev`, `libsamplerate-dev`
+Uninstall:
 
-To run the examples, you will also need <a href="http://sdr.osmocom.org/trac/wiki/rtl-sdr">rtl_sdr</a> from Osmocom, and the following packages (at least on Debian): `mplayer octave gnuplot gnuplot-x11`
+```bash
+sudo make -C build uninstall
+```
 
-If you compile `fftw3` from sources for use with `libcsdr`, you need to configure it with 32-bit float support and shared libaries enabled:
+The project has only been tested on Linux
+
+To run the examples, you will also need <a href="http://sdr.osmocom.org/trac/wiki/rtl-sdr">rtl_sdr</a> from Osmocom, and on Debian at least: `mplayer octave gnuplot gnuplot-x11`
+
+If you compile `fftw3` from sources for use with `libcsdr`, you need to configure it with 32-bit float support and shared libraries enabled:
 
     ./configure --enable-float --enable-shared
 
@@ -51,9 +119,7 @@ If you compile `fftw3` from sources for use with `libcsdr`, you need to configur
 
 Credits
 -------
-The library was written by Andras Retzler, HA7ILM &lt;<randras@sdr.hu>&gt;.
-
-I would like to say special thanks to Péter Horváth, PhD (HA5CQA) and János Selmeczi, PhD (HA5FT) for their continous help and support.
+The library was written by [Andras Retzler](https://github.com/ha7ilm). Development was continuede by [Jakob Ketterl](https://github.com/jketterl).
 
 Usage by example
 ----------------
@@ -64,7 +130,7 @@ Usage by example
 
 - Baseband I/Q signal is coming from an RTL-SDR USB dongle, with a center frequency of `-f 104300000` Hz, a sampling rate of `-s 240000` samples per second.
 - The `rtl_sdr` tool outputs an unsigned 8-bit I/Q signal (one byte of I sample and one byte of Q coming after each other), but `libcsdr` DSP routines internally use floating point data type, so we convert the data stream of `unsigned char` to `float` by `csdr convert`.
-- We want to listen one radio station at the frequency `-f 89500000` Hz (89.5 MHz).
+- We want to listen to one radio station at the frequency `-f 89500000` Hz (89.5 MHz).
 - No other radio station is within the sampled bandwidth, so we send the signal directly to the demodulator. (This is an easy, but not perfect solution as the anti-aliasing filter at RTL-SDR DDC is too short.)
 - After FM demodulation we decimate the signal by a factor of 5 to match the rate of the audio card (240000 / 5 = 48000).
 - A de-emphasis filter is used, because pre-emphasis is applied at the transmitter to compensate noise at higher frequencies. The time constant for de-emphasis for FM broadcasting in Europe is 50 microseconds (hence the `50e-6`).
