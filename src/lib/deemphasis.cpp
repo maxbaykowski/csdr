@@ -43,7 +43,7 @@ namespace {
     }
 }
 
-WfmDeemphasis::WfmDeemphasis(unsigned int sampleRate, float tau): dt(1.0f / sampleRate), alpha(dt / tau + dt) {}
+WfmDeemphasis::WfmDeemphasis(unsigned int sampleRate, float tau): dt(1.0f / sampleRate), alpha(dt / (tau + dt)) {}
 
 void WfmDeemphasis::process(float *input, float *output, size_t size) {
     /*

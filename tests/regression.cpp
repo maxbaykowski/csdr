@@ -44,6 +44,12 @@ class TestWriter: public Writer<T> {
         size_t capacity;
 };
 
+class TestableWfmDeemphasis: public WfmDeemphasis {
+    public:
+        TestableWfmDeemphasis(unsigned int sampleRate, float tau): WfmDeemphasis(sampleRate, tau) {}
+        using WfmDeemphasis::process;
+};
+
 static bool test_lowpass_single_output_progress() {
     auto window = std::unique_ptr<Window>(new HammingWindow());
     auto module = std::unique_ptr<FilterModule<float>>(new FilterModule<float>(new LowPassFilter<float>(0.01f, 0.05f, window.get())));
@@ -144,6 +150,28 @@ static bool test_nfm_deemphasis_8000_stays_bounded() {
     return true;
 }
 
+static bool test_wfm_deemphasis_low_tau_stays_stable() {
+    std::vector<float> input(4096, 1.0f);
+    std::vector<float> output(input.size(), 0.0f);
+
+    TestableWfmDeemphasis deemphasis40us(48000, 40e-6f);
+    deemphasis40us.process(input.data(), output.data(), input.size());
+    if (!std::isfinite(output.back()) || output.back() < 0.9f || output.back() > 1.0f) {
+        std::cerr << "deemphasis regression: 40 us WFM deemphasis is unstable or has the wrong DC gain\n";
+        return false;
+    }
+
+    TestableWfmDeemphasis deemphasis32us(48000, 32e-6f);
+    std::fill(output.begin(), output.end(), 0.0f);
+    deemphasis32us.process(input.data(), output.data(), input.size());
+    if (!std::isfinite(output.back()) || output.back() < 0.9f || output.back() > 1.0f) {
+        std::cerr << "deemphasis regression: 32 us WFM deemphasis is unstable or has the wrong DC gain\n";
+        return false;
+    }
+
+    return true;
+}
+
 static bool test_dcblock_audio_removes_dc() {
     DcBlock dcblock(48000.0f, 15.0f, 0.05f);
     std::vector<float> input(48000, 1.0f);
@@ -194,6 +222,7 @@ int main() {
     if (!test_lowpass_single_output_progress()) return EXIT_FAILURE;
     if (!test_fractionaldecimator_prefilter_high_rate_progress()) return EXIT_FAILURE;
     if (!test_nfm_deemphasis_8000_stays_bounded()) return EXIT_FAILURE;
+    if (!test_wfm_deemphasis_low_tau_stays_stable()) return EXIT_FAILURE;
     if (!test_dcblock_audio_removes_dc()) return EXIT_FAILURE;
     if (!test_dcblock_high_rate_preserves_near_center_tone()) return EXIT_FAILURE;
     return EXIT_SUCCESS;
