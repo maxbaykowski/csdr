@@ -172,6 +172,87 @@ static bool test_wfm_deemphasis_low_tau_stays_stable() {
     return true;
 }
 
+static double filteredToneEnergy(BandPassFilter<complex<float>>& filter, float tone, size_t outputSize) {
+    size_t inputSize = outputSize + filter.getOverhead();
+    std::vector<complex<float>> input(inputSize);
+    std::vector<complex<float>> output(outputSize);
+
+    for (size_t i = 0; i < input.size(); i++) {
+        float phase = 2.0f * static_cast<float>(M_PI) * tone * i;
+        input[i] = complex<float>(std::cos(phase), std::sin(phase));
+    }
+
+    filter.apply(input.data(), output.data(), outputSize);
+
+    double energy = 0.0;
+    for (const auto& sample : output) {
+        energy += std::norm(static_cast<std::complex<float>>(sample));
+    }
+
+    return energy / output.size();
+}
+
+static double filteredToneEnergy(FftBandPassFilter& filter, float tone, size_t outputSize) {
+    size_t inputSize = filter.getMinProcessingSize();
+    std::vector<complex<float>> input(inputSize + filter.getOverhead());
+    std::vector<complex<float>> output(outputSize);
+
+    for (size_t i = 0; i < input.size(); i++) {
+        float phase = 2.0f * static_cast<float>(M_PI) * tone * i;
+        input[i] = complex<float>(std::cos(phase), std::sin(phase));
+    }
+
+    size_t produced = filter.apply(input.data(), output.data(), outputSize);
+
+    double energy = 0.0;
+    for (size_t i = 0; i < produced; i++) {
+        energy += std::norm(static_cast<std::complex<float>>(output[i]));
+    }
+
+    return produced > 0 ? energy / produced : 0.0;
+}
+
+static double filteredFftToneEnergy(float lowcut, float highcut, Window& window, float tone) {
+    FftBandPassFilter filter(lowcut, highcut, 0.05f, &window);
+    return filteredToneEnergy(filter, tone, filter.getMinProcessingSize());
+}
+
+static bool test_bandpass_sideband_selection() {
+    HammingWindow window;
+
+    BandPassFilter<complex<float>> usbFilter(0.0f, 0.1f, 0.05f, &window);
+    double usbPass = filteredToneEnergy(usbFilter, 0.05f, 2048);
+    double usbReject = filteredToneEnergy(usbFilter, -0.05f, 2048);
+    if (usbPass <= usbReject * 10.0) {
+        std::cerr << "bandpass regression: USB filter does not prefer positive frequencies\n";
+        return false;
+    }
+
+    BandPassFilter<complex<float>> lsbFilter(-0.1f, 0.0f, 0.05f, &window);
+    double lsbPass = filteredToneEnergy(lsbFilter, -0.05f, 2048);
+    double lsbReject = filteredToneEnergy(lsbFilter, 0.05f, 2048);
+    if (lsbPass <= lsbReject * 10.0) {
+        std::cerr << "bandpass regression: LSB filter does not prefer negative frequencies\n";
+        return false;
+    }
+
+    double fftUsbPass = filteredFftToneEnergy(0.0f, 0.1f, window, 0.05f);
+    double fftUsbReject = filteredFftToneEnergy(0.0f, 0.1f, window, -0.05f);
+    if (fftUsbPass <= fftUsbReject * 10.0) {
+        std::cerr << "bandpass regression: FFT USB filter does not prefer positive frequencies\n";
+        return false;
+    }
+
+    double fftLsbPass = filteredFftToneEnergy(-0.1f, 0.0f, window, -0.05f);
+    double fftLsbReject = filteredFftToneEnergy(-0.1f, 0.0f, window, 0.05f);
+    if (fftLsbPass <= fftLsbReject * 10.0) {
+        std::cerr << "bandpass regression: FFT LSB filter does not prefer negative frequencies\n";
+        return false;
+    }
+
+    return true;
+}
+
 static bool test_dcblock_audio_removes_dc() {
     DcBlock dcblock(48000.0f, 15.0f, 0.05f);
     std::vector<float> input(48000, 1.0f);
@@ -223,6 +304,7 @@ int main() {
     if (!test_fractionaldecimator_prefilter_high_rate_progress()) return EXIT_FAILURE;
     if (!test_nfm_deemphasis_8000_stays_bounded()) return EXIT_FAILURE;
     if (!test_wfm_deemphasis_low_tau_stays_stable()) return EXIT_FAILURE;
+    if (!test_bandpass_sideband_selection()) return EXIT_FAILURE;
     if (!test_dcblock_audio_removes_dc()) return EXIT_FAILURE;
     if (!test_dcblock_high_rate_preserves_near_center_tone()) return EXIT_FAILURE;
     return EXIT_SUCCESS;

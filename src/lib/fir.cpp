@@ -197,7 +197,7 @@ complex<float> * BandPassTapGenerator::generateTaps(size_t length) {
         phase += 2.0f * M_PI * filter_center;
         while (phase > 2 * M_PI) phase -= 2 * M_PI;
         while (phase < 0) phase += 2 * M_PI;
-        taps[i] = realTaps[i] * complex<float>(sinval, cosval);
+        taps[i] = realTaps[i] * complex<float>(cosval, -sinval);
     }
 
     free(realTaps);
