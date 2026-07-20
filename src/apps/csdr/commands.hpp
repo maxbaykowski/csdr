@@ -36,7 +36,7 @@ namespace Csdr {
             template <typename T>
             void runSource(Source<T>* source);
             virtual void processFifoData(std::string data) {}
-            virtual size_t bufferSize() { return 10485760; }
+            virtual size_t bufferSize() { return 1048576; }
             std::string fifoName = "";
             CLI::Option* addFifoOption();
     };
@@ -135,8 +135,6 @@ namespace Csdr {
     class FirDecimateCommand: public Command {
         public:
             FirDecimateCommand();
-        protected:
-            size_t bufferSize() override { return 10 * Command::bufferSize(); }
         private:
             unsigned int decimationFactor = 1;
             float transitionBandwidth = 0.05;
