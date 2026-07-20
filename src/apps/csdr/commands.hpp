@@ -76,6 +76,13 @@ namespace Csdr {
             float fadeTime = 0.05f;
     };
 
+    class StereoFmCommand: public Command {
+        public:
+            StereoFmCommand();
+        private:
+            unsigned int sampleRate = 0;
+    };
+
     class ConvertCommand: public Command {
         public:
             ConvertCommand();

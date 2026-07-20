@@ -51,6 +51,7 @@ add_library(csdr SHARED
     sink.cpp
     audioresampler.cpp
     downmix.cpp
+    stereofm.cpp
     version.cpp
     noise.cpp
     phasedemod.cpp

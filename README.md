@@ -144,6 +144,14 @@ Usage by example
 - We shift the signal to the center frequency of the station we want to receive: `-0.085*2400000 = -204000`, so basically we will listen to the radio station centered at 89504000 Hz.
 - We decimate the signal by a factor of 10. The transition bandwidth of the FIR filter used for decimation will be 10% of total bandwidth (as of parameter 0.05 is 10% of 0.5). Hamming window will be used for windowed FIR filter design.
 
+### Demodulate WFM Stereo
+
+    rtl_sdr -s 2400000 -f 89300000 -g 20 - | csdr convert -i char -o float | csdr shift -0.085 | csdr firdecimate 10 0.05 | csdr fmdemod | csdr stereofm 240000 | csdr convert -i float -o s16 | mplayer -cache 1024 -quiet -rawaudio samplesize=2:channels=2:rate=240000 -demuxer rawaudio -
+
+- `stereofm` is intended to be used after `fmdemod`.
+- It outputs interleaved stereo audio as `L,R,L,R,...`, so downstream tools must be configured for two channels.
+- The input sample rate must be high enough to preserve the FM stereo multiplex.
+
 Sample rates look like this:
 
 
@@ -279,6 +287,20 @@ When used in `--wfm` mode, it performs de-emphasis with the given RC time consta
 Different parts of the world use different pre-emphasis filters for FM broadcasting: In Europe, `tau` should be chosen as `50e-6`, and in the USA, `tau` should be `75e-6`.
 
 When used in `--nfm` mode, it uses fixed filters so it works only on predefined sample rates. See the file `src/lib/predefined.h` for the available rates and information on how to add others.
+
+----
+
+### stereofm
+
+Syntax:
+
+    csdr stereofm <sample_rate>
+
+This is a simple FM stereo decoder intended to be used after `csdr fmdemod`.
+
+It reconstructs the stereo difference channel from the 19 kHz pilot and 38 kHz suppressed subcarrier, then outputs an interleaved stereo float stream in `L,R,L,R,...` order.
+
+The input sample rate must be high enough to contain the stereo multiplex, but not so high that you are feeding an unnecessarily oversampled composite signal into this simple decoder. The supported range is `152000` to `384000` samples per second. The output per-channel sample rate is the same as the input sample rate.
 
 ### amdemod
 

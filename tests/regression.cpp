@@ -4,6 +4,7 @@
 #include "fir.hpp"
 #include "fractionaldecimator.hpp"
 #include "reader.hpp"
+#include "stereofm.hpp"
 #include "window.hpp"
 
 #include <algorithm>
@@ -299,6 +300,92 @@ static bool test_dcblock_high_rate_preserves_near_center_tone() {
     return true;
 }
 
+static bool test_stereofm_decoder_recovers_channels() {
+    const unsigned int sampleRate = 240000;
+    const size_t sampleCount = 240000 / 10;
+    const float leftFreq = 1000.0f;
+    const float rightFreq = 2300.0f;
+
+    StereoFmDecoder decoder(sampleRate);
+    std::vector<float> input(sampleCount);
+    std::vector<float> output(sampleCount * 2, 0.0f);
+
+    for (size_t i = 0; i < sampleCount; i++) {
+        float t = static_cast<float>(i) / sampleRate;
+        float left = 0.5f * std::sin(2.0f * static_cast<float>(M_PI) * leftFreq * t);
+        float right = 0.5f * std::sin(2.0f * static_cast<float>(M_PI) * rightFreq * t);
+        float mono = left + right;
+        float diff = left - right;
+        float pilot = 0.1f * std::cos(2.0f * static_cast<float>(M_PI) * 19000.0f * t);
+        float stereo = diff * std::cos(2.0f * static_cast<float>(M_PI) * 38000.0f * t);
+        input[i] = mono + pilot + stereo;
+    }
+
+    MemoryReader<float> reader(input.data(), input.size());
+    TestWriter<float> writer(output.size());
+    decoder.setReader(&reader);
+    decoder.setWriter(&writer);
+
+    while (decoder.canProcess()) {
+        decoder.process();
+    }
+
+    if (writer.collected.size() != output.size()) {
+        std::cerr << "stereofm regression: expected interleaved stereo output\n";
+        return false;
+    }
+
+    double leftCorr = 0.0;
+    double rightCorr = 0.0;
+    double leftLeak = 0.0;
+    double rightLeak = 0.0;
+    double leftEnergy = 0.0;
+    double rightEnergy = 0.0;
+    size_t start = sampleRate / 200;
+
+    for (size_t i = start; i < sampleCount; i++) {
+        float t = static_cast<float>(i) / sampleRate;
+        float leftRef = 0.5f * std::sin(2.0f * static_cast<float>(M_PI) * leftFreq * t);
+        float rightRef = 0.5f * std::sin(2.0f * static_cast<float>(M_PI) * rightFreq * t);
+        float leftOut = writer.collected[2 * i];
+        float rightOut = writer.collected[2 * i + 1];
+        leftCorr += leftOut * leftRef;
+        rightCorr += rightOut * rightRef;
+        leftLeak += leftOut * rightRef;
+        rightLeak += rightOut * leftRef;
+        leftEnergy += leftRef * leftRef;
+        rightEnergy += rightRef * rightRef;
+    }
+
+    if (leftCorr / leftEnergy < 0.7 || rightCorr / rightEnergy < 0.7) {
+        std::cerr << "stereofm regression: decoded channels do not match reference audio\n";
+        return false;
+    }
+
+    if (std::abs(leftLeak / rightEnergy) > 0.12 || std::abs(rightLeak / leftEnergy) > 0.12) {
+        std::cerr << "stereofm regression: stereo separation is too weak\n";
+        return false;
+    }
+
+    try {
+        StereoFmDecoder tooLow(96000);
+        (void) tooLow;
+        std::cerr << "stereofm regression: low sample rate should be rejected\n";
+        return false;
+    } catch (const std::runtime_error&) {
+    }
+
+    try {
+        StereoFmDecoder tooHigh(500000);
+        (void) tooHigh;
+        std::cerr << "stereofm regression: high sample rate should be rejected\n";
+        return false;
+    } catch (const std::runtime_error&) {
+    }
+
+    return true;
+}
+
 int main() {
     if (!test_lowpass_single_output_progress()) return EXIT_FAILURE;
     if (!test_fractionaldecimator_prefilter_high_rate_progress()) return EXIT_FAILURE;
@@ -307,5 +394,6 @@ int main() {
     if (!test_bandpass_sideband_selection()) return EXIT_FAILURE;
     if (!test_dcblock_audio_removes_dc()) return EXIT_FAILURE;
     if (!test_dcblock_high_rate_preserves_near_center_tone()) return EXIT_FAILURE;
+    if (!test_stereofm_decoder_recovers_channels()) return EXIT_FAILURE;
     return EXIT_SUCCESS;
 }

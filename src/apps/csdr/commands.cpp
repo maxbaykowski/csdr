@@ -24,6 +24,7 @@ along with csdr.  If not, see <https://www.gnu.org/licenses/>.
 #include "fmdemod.hpp"
 #include "amdemod.hpp"
 #include "dcblock.hpp"
+#include "stereofm.hpp"
 #include "converter.hpp"
 #include "fft.hpp"
 #include "logpower.hpp"
@@ -219,6 +220,13 @@ DcBlockCommand::DcBlockCommand(): Command("dcblock", "DC block") {
     add_option("--fade", fadeTime, "Fade time in seconds for applying DC estimate changes", true);
     callback( [this] () {
         runModule(new DcBlock(sampleRate, cutoff, fadeTime));
+    });
+}
+
+StereoFmCommand::StereoFmCommand(): Command("stereofm", "Decode FM stereo multiplex into interleaved left/right audio") {
+    add_option("sample_rate", sampleRate, "Sample rate")->required();
+    callback( [this] () {
+        runModule(new StereoFmDecoder(sampleRate));
     });
 }
 
