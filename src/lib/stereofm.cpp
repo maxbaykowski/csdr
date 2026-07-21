@@ -27,10 +27,13 @@ using namespace Csdr;
 
 namespace {
     constexpr float pilotFrequency = 19000.0f;
-    constexpr float stereoFrequency = 38000.0f;
     constexpr float audioCutoff = 15000.0f;
     constexpr float pilotFastTrackingCutoff = 2500.0f;
     constexpr float pilotSlowTrackingCutoff = 150.0f;
+    constexpr float pilotLoopFastBandwidth = 120.0f;
+    constexpr float pilotLoopSlowBandwidth = 8.0f;
+    constexpr float pilotLoopDamping = 0.70710678f;
+    constexpr float maxPilotFrequencyOffset = 200.0f;
     constexpr float stereoSeparationGain = 2.0f;
     constexpr float minSampleRate = 152000.0f;
     constexpr float maxSampleRate = 384000.0f;
@@ -41,8 +44,14 @@ StereoFmDecoder::StereoFmDecoder(unsigned int sampleRate):
     audioAlpha(alphaFor(sampleRate, audioCutoff)),
     pilotFastAlpha(alphaFor(sampleRate, pilotFastTrackingCutoff)),
     pilotSlowAlpha(alphaFor(sampleRate, pilotSlowTrackingCutoff)),
-    phase19Step(2.0f * static_cast<float>(M_PI) * pilotFrequency / sampleRate),
-    phase38Step(2.0f * static_cast<float>(M_PI) * stereoFrequency / sampleRate),
+    loopFastProportionalGain(2.0f * pilotLoopDamping * (2.0f * static_cast<float>(M_PI) * pilotLoopFastBandwidth / sampleRate)),
+    loopFastIntegralGain(std::pow(2.0f * static_cast<float>(M_PI) * pilotLoopFastBandwidth / sampleRate, 2.0f)),
+    loopSlowProportionalGain(2.0f * pilotLoopDamping * (2.0f * static_cast<float>(M_PI) * pilotLoopSlowBandwidth / sampleRate)),
+    loopSlowIntegralGain(std::pow(2.0f * static_cast<float>(M_PI) * pilotLoopSlowBandwidth / sampleRate, 2.0f)),
+    nominalPhase19Step(2.0f * static_cast<float>(M_PI) * pilotFrequency / sampleRate),
+    phase19Step(nominalPhase19Step),
+    minPhase19Step(2.0f * static_cast<float>(M_PI) * (pilotFrequency - maxPilotFrequencyOffset) / sampleRate),
+    maxPhase19Step(2.0f * static_cast<float>(M_PI) * (pilotFrequency + maxPilotFrequencyOffset) / sampleRate),
     startupSamplesRemaining(std::max<size_t>(sampleRate / 200, 1))
 {
     if (sampleRate < minSampleRate) {
@@ -58,16 +67,19 @@ float StereoFmDecoder::alphaFor(float sampleRate, float cutoff) {
     return std::min(std::max(alpha, 0.0f), 1.0f);
 }
 
+float StereoFmDecoder::wrapPhase(float phase) {
+    while (phase > static_cast<float>(M_PI)) phase -= 2.0f * static_cast<float>(M_PI);
+    while (phase < -static_cast<float>(M_PI)) phase += 2.0f * static_cast<float>(M_PI);
+    return phase;
+}
+
+float StereoFmDecoder::clamp(float value, float low, float high) {
+    return std::min(std::max(value, low), high);
+}
+
 bool StereoFmDecoder::canProcess() {
     std::lock_guard<std::mutex> lock(this->processMutex);
     return this->reader->available() > 0 && this->writer->writeable() >= 2;
-}
-
-void StereoFmDecoder::advancePhases() {
-    phase19 += phase19Step;
-    phase38 += phase38Step;
-    while (phase19 > 2.0f * static_cast<float>(M_PI)) phase19 -= 2.0f * static_cast<float>(M_PI);
-    while (phase38 > 2.0f * static_cast<float>(M_PI)) phase38 -= 2.0f * static_cast<float>(M_PI);
 }
 
 void StereoFmDecoder::process() {
@@ -82,10 +94,7 @@ void StereoFmDecoder::process() {
 
         float sin19;
         float cos19;
-        float sin38;
-        float cos38;
         sincosf(phase19, &sin19, &cos19);
-        sincosf(phase38, &sin38, &cos38);
 
         monoState += audioAlpha * (x - monoState);
         float compositeHigh = x - monoState;
@@ -96,24 +105,25 @@ void StereoFmDecoder::process() {
         pilotIState += pilotAlpha * (pilotI - pilotIState);
         pilotQState += pilotAlpha * (pilotQ - pilotQState);
 
-        float pilotNorm = pilotIState * pilotIState + pilotQState * pilotQState;
-        if (pilotNorm > 1.0e-12f) {
-            stereoPhaseCos = (pilotIState * pilotIState - pilotQState * pilotQState) / pilotNorm;
-            stereoPhaseSin = 2.0f * pilotIState * pilotQState / pilotNorm;
-        }
+        float phaseError = std::atan2(pilotQState, pilotIState);
+        float proportionalGain = startupSamplesRemaining > 0 ? loopFastProportionalGain : loopSlowProportionalGain;
+        float integralGain = startupSamplesRemaining > 0 ? loopFastIntegralGain : loopSlowIntegralGain;
+        phase19Step = clamp(phase19Step + integralGain * phaseError, minPhase19Step, maxPhase19Step);
 
         float pilotEstimate = 2.0f * (pilotIState * cos19 - pilotQState * sin19);
         float stereoComposite = compositeHigh - pilotEstimate;
-        float regeneratedCarrier = cos38 * stereoPhaseCos - sin38 * stereoPhaseSin;
+        float regeneratedCarrier = std::cos(2.0f * (phase19 + phaseError));
         float diffMixed = 2.0f * stereoComposite * regeneratedCarrier;
         diffState += audioAlpha * (diffMixed - diffState);
 
-        float left = 0.5f * (monoState + stereoSeparationGain * diffState);
-        float right = 0.5f * (monoState - stereoSeparationGain * diffState);
+        // Broadcast FM stereo uses the opposite L-R polarity from the
+        // synthetic convention we originally tested against.
+        float left = 0.5f * (monoState - stereoSeparationGain * diffState);
+        float right = 0.5f * (monoState + stereoSeparationGain * diffState);
         output[2 * i] = left;
         output[2 * i + 1] = right;
 
-        advancePhases();
+        phase19 = wrapPhase(phase19 + phase19Step + proportionalGain * phaseError);
         if (startupSamplesRemaining > 0) startupSamplesRemaining--;
     }
 

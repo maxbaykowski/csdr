@@ -322,7 +322,7 @@ static bool test_dcblock_high_rate_preserves_near_center_tone() {
 
 static bool test_stereofm_decoder_recovers_channels() {
     const unsigned int sampleRate = 240000;
-    const size_t sampleCount = 240000 / 10;
+    const size_t sampleCount = sampleRate;
     const float leftFreq = 1000.0f;
     const float rightFreq = 2300.0f;
 
@@ -335,7 +335,7 @@ static bool test_stereofm_decoder_recovers_channels() {
         float left = 0.5f * std::sin(2.0f * static_cast<float>(M_PI) * leftFreq * t);
         float right = 0.5f * std::sin(2.0f * static_cast<float>(M_PI) * rightFreq * t);
         float mono = left + right;
-        float diff = left - right;
+        float diff = right - left;
         float pilot = 0.1f * std::cos(2.0f * static_cast<float>(M_PI) * 19000.0f * t);
         float stereo = diff * std::cos(2.0f * static_cast<float>(M_PI) * 38000.0f * t);
         input[i] = mono + pilot + stereo;
@@ -378,12 +378,16 @@ static bool test_stereofm_decoder_recovers_channels() {
     }
 
     if (leftCorr / leftEnergy < 0.7 || rightCorr / rightEnergy < 0.7) {
-        std::cerr << "stereofm regression: decoded channels do not match reference audio\n";
+        std::cerr << "stereofm regression: decoded channels do not match reference audio"
+                  << " left=" << (leftCorr / leftEnergy)
+                  << " right=" << (rightCorr / rightEnergy) << "\n";
         return false;
     }
 
     if (std::abs(leftLeak / rightEnergy) > 0.12 || std::abs(rightLeak / leftEnergy) > 0.12) {
-        std::cerr << "stereofm regression: stereo separation is too weak\n";
+        std::cerr << "stereofm regression: stereo separation is too weak"
+                  << " leftLeak=" << std::abs(leftLeak / rightEnergy)
+                  << " rightLeak=" << std::abs(rightLeak / leftEnergy) << "\n";
         return false;
     }
 
@@ -437,7 +441,144 @@ static bool test_fractionaldecimator_stereo_preserves_channels() {
     return true;
 }
 
+static bool test_stereofm_pipeline_preserves_channel_orientation() {
+    const unsigned int stereoRate = 240000;
+    const unsigned int audioRate = 48000;
+    const size_t sampleCount = stereoRate * 2;
+    const float leftFreq = 500.0f;
+    const float rightFreq = 600.0f;
+
+    StereoFmDecoder decoder(stereoRate);
+    std::vector<float> composite(sampleCount);
+    std::vector<float> stereo(sampleCount * 2, 0.0f);
+
+    for (size_t i = 0; i < sampleCount; i++) {
+        float t = static_cast<float>(i) / stereoRate;
+        float left = 0.5f * std::sin(2.0f * static_cast<float>(M_PI) * leftFreq * t);
+        float right = 0.5f * std::sin(2.0f * static_cast<float>(M_PI) * rightFreq * t);
+        float mono = left + right;
+        float diff = right - left;
+        float pilot = 0.1f * std::cos(2.0f * static_cast<float>(M_PI) * 19000.0f * t);
+        float stereoBand = diff * std::cos(2.0f * static_cast<float>(M_PI) * 38000.0f * t);
+        composite[i] = mono + pilot + stereoBand;
+    }
+
+    MemoryReader<float> stereoReader(composite.data(), composite.size());
+    TestWriter<float> stereoWriter(stereo.size());
+    decoder.setReader(&stereoReader);
+    decoder.setWriter(&stereoWriter);
+    while (decoder.canProcess()) {
+        decoder.process();
+    }
+
+    FractionalDecimator<float> decimator(5.0f, 12, nullptr, 2);
+    MemoryReader<float> audioReader(stereoWriter.collected.data(), stereoWriter.collected.size());
+    TestWriter<float> audioWriter(stereoWriter.collected.size());
+    decimator.setReader(&audioReader);
+    decimator.setWriter(&audioWriter);
+    while (decimator.canProcess()) {
+        decimator.process();
+    }
+
+    if (audioWriter.collected.size() < audioRate * 2) {
+        std::cerr << "stereofm regression: pipeline output too short\n";
+        return false;
+    }
+
+    TestableWfmDeemphasis deemphasis(audioRate, 75e-6f, 2);
+    std::vector<float> deemphasized(audioWriter.collected.size(), 0.0f);
+    deemphasis.process(audioWriter.collected.data(), deemphasized.data(), audioWriter.collected.size());
+
+    double left500 = 0.0;
+    double left600 = 0.0;
+    double right500 = 0.0;
+    double right600 = 0.0;
+    size_t start = audioRate / 20;
+    size_t frames = deemphasized.size() / 2;
+
+    for (size_t i = start; i < frames; i++) {
+        float t = static_cast<float>(i) / audioRate;
+        float ref500 = std::sin(2.0f * static_cast<float>(M_PI) * leftFreq * t);
+        float ref600 = std::sin(2.0f * static_cast<float>(M_PI) * rightFreq * t);
+        float left = deemphasized[2 * i];
+        float right = deemphasized[2 * i + 1];
+        left500 += left * ref500;
+        left600 += left * ref600;
+        right500 += right * ref500;
+        right600 += right * ref600;
+    }
+
+    if (std::abs(left500) <= std::abs(left600) || std::abs(right600) <= std::abs(right500)) {
+        std::cerr << "stereofm regression: full stereo pipeline reversed or collapsed channels\n";
+        return false;
+    }
+
+    return true;
+}
+
+static bool test_stereofm_decoder_tracks_pilot_frequency_offset() {
+    const unsigned int sampleRate = 240000;
+    const size_t sampleCount = sampleRate * 6;
+    const float leftFreq = 500.0f;
+    const float rightFreq = 600.0f;
+    const float pilotFreq = 19000.2f;
+    const float stereoFreq = 38000.4f;
+
+    StereoFmDecoder decoder(sampleRate);
+    std::vector<float> input(sampleCount);
+    std::vector<float> output(sampleCount * 2, 0.0f);
+
+    for (size_t i = 0; i < sampleCount; i++) {
+        float t = static_cast<float>(i) / sampleRate;
+        float left = 0.5f * std::sin(2.0f * static_cast<float>(M_PI) * leftFreq * t);
+        float right = 0.5f * std::sin(2.0f * static_cast<float>(M_PI) * rightFreq * t);
+        float mono = left + right;
+        float diff = right - left;
+        float pilot = 0.1f * std::cos(2.0f * static_cast<float>(M_PI) * pilotFreq * t);
+        float stereo = diff * std::cos(2.0f * static_cast<float>(M_PI) * stereoFreq * t);
+        input[i] = mono + pilot + stereo;
+    }
+
+    MemoryReader<float> reader(input.data(), input.size());
+    TestWriter<float> writer(output.size());
+    decoder.setReader(&reader);
+    decoder.setWriter(&writer);
+
+    while (decoder.canProcess()) {
+        decoder.process();
+    }
+
+    const size_t window = sampleRate;
+    const size_t start = sampleCount - window;
+    double left500 = 0.0;
+    double left600 = 0.0;
+    double right500 = 0.0;
+    double right600 = 0.0;
+
+    for (size_t i = start; i < sampleCount; i++) {
+        float t = static_cast<float>(i) / sampleRate;
+        float ref500 = std::sin(2.0f * static_cast<float>(M_PI) * leftFreq * t);
+        float ref600 = std::sin(2.0f * static_cast<float>(M_PI) * rightFreq * t);
+        float left = writer.collected[2 * i];
+        float right = writer.collected[2 * i + 1];
+        left500 += left * ref500;
+        left600 += left * ref600;
+        right500 += right * ref500;
+        right600 += right * ref600;
+    }
+
+    if (std::abs(left500) <= std::abs(left600) || std::abs(right600) <= std::abs(right500)) {
+        std::cerr << "stereofm regression: decoder lost channel orientation under pilot frequency offset\n";
+        return false;
+    }
+
+    return true;
+}
+
 int main() {
+    if (!test_stereofm_decoder_recovers_channels()) return EXIT_FAILURE;
+    if (!test_stereofm_decoder_tracks_pilot_frequency_offset()) return EXIT_FAILURE;
+    if (!test_stereofm_pipeline_preserves_channel_orientation()) return EXIT_FAILURE;
     if (!test_lowpass_single_output_progress()) return EXIT_FAILURE;
     if (!test_fractionaldecimator_prefilter_high_rate_progress()) return EXIT_FAILURE;
     if (!test_nfm_deemphasis_8000_stays_bounded()) return EXIT_FAILURE;
@@ -446,7 +587,6 @@ int main() {
     if (!test_bandpass_sideband_selection()) return EXIT_FAILURE;
     if (!test_dcblock_audio_removes_dc()) return EXIT_FAILURE;
     if (!test_dcblock_high_rate_preserves_near_center_tone()) return EXIT_FAILURE;
-    if (!test_stereofm_decoder_recovers_channels()) return EXIT_FAILURE;
     if (!test_fractionaldecimator_stereo_preserves_channels()) return EXIT_FAILURE;
     return EXIT_SUCCESS;
 }

@@ -30,22 +30,26 @@ namespace Csdr {
             void process() override;
         private:
             static float alphaFor(float sampleRate, float cutoff);
-            void advancePhases();
+            static float wrapPhase(float phase);
+            static float clamp(float value, float low, float high);
 
             float sampleRate;
             float audioAlpha;
             float pilotFastAlpha;
             float pilotSlowAlpha;
+            float loopFastProportionalGain;
+            float loopFastIntegralGain;
+            float loopSlowProportionalGain;
+            float loopSlowIntegralGain;
             float phase19 = 0.0f;
-            float phase38 = 0.0f;
+            float nominalPhase19Step;
             float phase19Step;
-            float phase38Step;
+            float minPhase19Step;
+            float maxPhase19Step;
             float monoState = 0.0f;
             float diffState = 0.0f;
             float pilotIState = 0.0f;
             float pilotQState = 0.0f;
-            float stereoPhaseCos = 1.0f;
-            float stereoPhaseSin = 0.0f;
             size_t startupSamplesRemaining;
     };
 

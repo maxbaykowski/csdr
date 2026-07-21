@@ -146,10 +146,10 @@ Usage by example
 
 ### Demodulate WFM Stereo
 
-    rtl_sdr -s 2400000 -f 89300000 -g 20 - | csdr convert -i char -o float | csdr shift -0.085 | csdr firdecimate 10 0.05 | csdr fmdemod | csdr stereofm 240000 | csdr convert -i float -o s16 | mplayer -cache 1024 -quiet -rawaudio samplesize=2:channels=2:rate=240000 -demuxer rawaudio -
+    rtl_sdr -s 2400000 -f 89300000 -g 20 - | csdr convert -i char -o float | csdr shift -0.085 | csdr firdecimate 10 0.05 | csdr fmdemod | csdr stereofm 240000 | csdr fractionaldecimator 5 --format float --channels=2 | csdr deemphasis --wfm 48000 50e-6 --channels=2 | csdr convert -i float -o s16 | mplayer -cache 1024 -quiet -rawaudio samplesize=2:channels=2:rate=48000 -demuxer rawaudio -
 
 - `stereofm` is intended to be used after `fmdemod`.
-- It outputs interleaved stereo audio as `L,R,L,R,...`, so downstream tools must be configured for two channels.
+- It outputs interleaved stereo audio as `L,R,L,R,...`, so downstream float-processing commands such as `fractionaldecimator` and `deemphasis --wfm` must be given `--channels=2`.
 - The input sample rate must be high enough to preserve the FM stereo multiplex.
 
 Sample rates look like this:
