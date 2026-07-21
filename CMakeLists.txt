@@ -26,7 +26,7 @@ if (CMAKE_BUILD_TYPE STREQUAL None)
 endif()
 
 project (csdr VERSION 0.19.3)
-add_definitions(-DVERSION="${PROJECT_VERSION}-dev")
+add_definitions(-DVERSION="${PROJECT_VERSION}")
 enable_testing()
 
 enable_language(CXX)
