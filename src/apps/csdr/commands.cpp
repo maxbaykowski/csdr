@@ -54,6 +54,18 @@ along with csdr.  If not, see <https://www.gnu.org/licenses/>.
 
 using namespace Csdr;
 
+namespace {
+    template <typename T>
+    size_t availableReadBytes(size_t writableElements, size_t carryBytes, size_t chunkLimitElements = 1024) {
+        size_t cappedElements = std::min(writableElements, chunkLimitElements);
+        size_t capacityBytes = cappedElements * sizeof(T);
+        if (carryBytes >= sizeof(T) || carryBytes > capacityBytes) {
+            return 0;
+        }
+        return capacityBytes - carryBytes;
+    }
+}
+
 template <typename T, typename U>
 void Command::runModule(Module<T, U>* module) {
     auto buffer = new Ringbuffer<T>(bufferSize());
@@ -69,7 +81,7 @@ void Command::runModule(Module<T, U>* module) {
     fd_set read_fds;
     struct timeval tv = { .tv_sec = 10, .tv_usec = 0};
     int rc;
-    size_t bytes_read;
+    ssize_t bytes_read;
     size_t read_over = 0;
     int nfds = fileno(stdin) + 1;
 
@@ -107,16 +119,28 @@ void Command::runModule(Module<T, U>* module) {
                 }
             }
             if (FD_ISSET(fileno(stdin), &read_fds)) {
-                // clamp so we don't overwrite the whole buffer in one go
-                size_t writeable = std::min((size_t) 1024, buffer->writeable());
-                // compensate for byte to element alignment
-                writeable = (writeable * sizeof(T)) - read_over;
+                size_t writeable = availableReadBytes<T>(buffer->writeable(), read_over);
+                if (writeable == 0) {
+                    if (runner == nullptr) {
+                        while (module->canProcess()) module->process();
+                    }
+                    continue;
+                }
+
                 bytes_read = read(fileno(stdin), ((char *) buffer->getWritePointer()) + read_over, writeable);
                 if (bytes_read == 0) break;
+                if (bytes_read < 0) {
+                    if (errno == EINTR) {
+                        continue;
+                    }
+                    std::cerr << "read() error: " << strerror(errno) << "\n";
+                    break;
+                }
 
                 // advance but don't go into partially read elements
-                buffer->advance((bytes_read + read_over) / sizeof(T));
-                read_over = (bytes_read + read_over) % sizeof(T);
+                size_t total = read_over + static_cast<size_t>(bytes_read);
+                buffer->advance(total / sizeof(T));
+                read_over = total % sizeof(T);
 
                 // synchronous processing if we are not in async mode
                 if (runner == nullptr) {

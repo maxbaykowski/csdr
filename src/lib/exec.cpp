@@ -30,6 +30,18 @@ along with libcsdr.  If not, see <https://www.gnu.org/licenses/>.
 
 using namespace Csdr;
 
+namespace {
+    template <typename T>
+    size_t availableTransferBytes(size_t elementCount, size_t carryBytes, size_t chunkLimitElements = 1024) {
+        size_t cappedElements = std::min(elementCount, chunkLimitElements);
+        size_t capacityBytes = cappedElements * sizeof(T);
+        if (carryBytes >= sizeof(T) || carryBytes > capacityBytes) {
+            return 0;
+        }
+        return capacityBytes - carryBytes;
+    }
+}
+
 template <typename T, typename U>
 ExecModule<T, U>::ExecModule(std::vector<std::string> args, size_t flushSize):
     Module<T, U>(),
@@ -200,15 +212,19 @@ void ExecModule<T, U>::readLoop() {
                 std::cerr << "ExecModule: writer cannot accept data. Stopping readLoop";
                 run = false;
             } else {
-                available = std::min(available, (size_t) 1024) * sizeof(U) - readOffset;
+                available = availableTransferBytes<U>(available, static_cast<size_t>(readOffset));
+                if (available == 0) {
+                    continue;
+                }
                 read_bytes = read(this->readPipe, ((char*) this->writer->getWritePointer()) + readOffset, available);
                 if (read_bytes <= 0) {
                     if (errno != EAGAIN) {
                         run = false;
                     }
                 } else {
-                    this->writer->advance((readOffset + read_bytes) / sizeof(U));
-                    readOffset = (readOffset + read_bytes) % sizeof(U);
+                    size_t total = static_cast<size_t>(readOffset) + static_cast<size_t>(read_bytes);
+                    this->writer->advance(total / sizeof(U));
+                    readOffset = total % sizeof(U);
                 }
             }
         }
@@ -252,7 +268,10 @@ void ExecModule<T, U>::process() {
     size_t available = this->reader->available();
     if (available == 0) return;
 
-    size_t size = std::min(available, (size_t) 1024) * sizeof(T) - writeOffset;
+    size_t size = availableTransferBytes<T>(available, static_cast<size_t>(writeOffset));
+    if (size == 0) {
+        return;
+    }
     ssize_t written = write(this->writePipe, ((char*) this->reader->getReadPointer()) + writeOffset, size);
     if (written == -1) {
         // EAGAIN may happen since writePipe is non-blocking.
@@ -260,8 +279,9 @@ void ExecModule<T, U>::process() {
         std::cerr << "ExecModule: error writing data to child pipe: " << strerror(errno) << "\n";
         return;
     }
-    this->reader->advance((writeOffset + written) / sizeof(T));
-    writeOffset = (writeOffset + written) % sizeof(T);
+    size_t total = static_cast<size_t>(writeOffset) + static_cast<size_t>(written);
+    this->reader->advance(total / sizeof(T));
+    writeOffset = total % sizeof(T);
 }
 
 template <typename T, typename U>

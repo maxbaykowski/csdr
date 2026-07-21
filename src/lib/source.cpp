@@ -25,6 +25,18 @@ along with libcsdr.  If not, see <https://www.gnu.org/licenses/>.
 
 using namespace Csdr;
 
+namespace {
+    template <typename T>
+    size_t availableReadBytes(size_t writableElements, size_t carryBytes, size_t chunkLimitElements = 1024) {
+        size_t cappedElements = std::min(writableElements, chunkLimitElements);
+        size_t capacityBytes = cappedElements * sizeof(T);
+        if (carryBytes >= sizeof(T) || carryBytes > capacityBytes) {
+            return 0;
+        }
+        return capacityBytes - carryBytes;
+    }
+}
+
 template <typename T>
 void Source<T>::setWriter(Writer<T>* writer) {
     this->writer = writer;
@@ -42,6 +54,7 @@ bool Source<T>::hasWriter() {
 
 template<typename T>
 TcpSource<T>::~TcpSource() {
+    stop();
     ::close(sock);
 }
 
@@ -76,9 +89,8 @@ void TcpSource<T>::setWriter(Writer<T> *writer) {
 
 template <typename T>
 void TcpSource<T>::loop() {
-    int read_bytes;
-    int available;
-    int offset = 0;
+    ssize_t read_bytes;
+    size_t offset = 0;
     pollfd pfd = {
         .fd = sock,
         .events = POLLIN
@@ -92,13 +104,17 @@ void TcpSource<T>::loop() {
         } else if (pfd.revents & POLLERR) {
             run = false;
         } else if (pfd.revents & POLLIN) {
-            available = std::min(this->writer->writeable(), (size_t) 1024) * sizeof(T) - offset;
+            size_t available = availableReadBytes<T>(this->writer->writeable(), offset);
+            if (available == 0) {
+                continue;
+            }
             read_bytes = recv(sock, ((char*) this->writer->getWritePointer()) + offset, available, 0);
             if (read_bytes <= 0) {
                 run = false;
             } else {
-                this->writer->advance((offset + read_bytes) / sizeof(T));
-                offset = (offset + read_bytes) % sizeof(T);
+                size_t total = offset + static_cast<size_t>(read_bytes);
+                this->writer->advance(total / sizeof(T));
+                offset = total % sizeof(T);
             }
         }
     }
@@ -108,6 +124,7 @@ template <typename T>
 void TcpSource<T>::stop() {
     run = false;
     if (thread != nullptr) {
+        ::shutdown(sock, SHUT_RDWR);
         auto t = thread;
         thread = nullptr;
         t->join();
