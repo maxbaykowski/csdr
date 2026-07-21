@@ -373,6 +373,7 @@ FractionalDecimatorCommand::FractionalDecimatorCommand(): Command("fractionaldec
     add_option("decimation_rate", decimation_rate, "Decimation rate")->required();
     add_option("-n,--numpoly", num_poly_points, "Number of poly points", true);
     add_option("-t,--transition", transition, "Transition bandwidth for the prefilter", true);
+    add_option("--channels", channels, "Number of interleaved channels for float streams", true);
     add_set("-w,--window", window, {"boxcar", "blackman", "hamming"}, "Window function for the prefilter", true);
     add_flag("-p,--prefilter", prefilter, "Apply filtering before decimation");
     callback( [this] () {
@@ -403,7 +404,8 @@ void FractionalDecimatorCommand::runDecimator() {
         }
         filter = new LowPassFilter<T>(0.5 / (decimation_rate - transition), transition, w);
     }
-    runModule(new FractionalDecimator<T>(decimation_rate, num_poly_points, filter));
+    unsigned int actualChannels = std::is_same<T, float>::value ? channels : 1;
+    runModule(new FractionalDecimator<T>(decimation_rate, num_poly_points, filter, actualChannels));
 }
 
 AdpcmCommand::AdpcmCommand(): Command("adpcm", "ADPCM codec") {
@@ -498,12 +500,17 @@ DeemphasisCommand::DeemphasisCommand(): Command("deemphasis", "Deemphasis for FM
     nfmFlag->excludes(wfmFlag);
     add_option("sample_rate", sampleRate, "Sample rate")->required();
     add_option("tau", tau, "Tau", true);
+    add_option("--channels", channels, "Number of interleaved channels for float streams", true);
     callback( [this, wfmFlag] () {
         // default: nfm
         if (!(*wfmFlag)) {
+            if (channels != 1) {
+                std::cerr << "nfm deemphasis does not support multi-channel float streams\n";
+                return;
+            }
             runModule(new NfmDeephasis(sampleRate));
         } else {
-            runModule(new WfmDeemphasis(sampleRate, tau));
+            runModule(new WfmDeemphasis(sampleRate, tau, channels));
         }
     });
 }

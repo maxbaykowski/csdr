@@ -43,7 +43,12 @@ namespace {
     }
 }
 
-WfmDeemphasis::WfmDeemphasis(unsigned int sampleRate, float tau): dt(1.0f / sampleRate), alpha(dt / (tau + dt)) {}
+WfmDeemphasis::WfmDeemphasis(unsigned int sampleRate, float tau, unsigned int channels):
+    dt(1.0f / sampleRate),
+    alpha(dt / (tau + dt)),
+    channels(channels == 0 ? 1 : channels),
+    last_output(this->channels, 0.0f)
+{}
 
 void WfmDeemphasis::process(float *input, float *output, size_t size) {
     /*
@@ -53,9 +58,10 @@ void WfmDeemphasis::process(float *input, float *output, size_t size) {
         More info at: http://www.cliftonlaboratories.com/fm_receivers_and_de-emphasis.htm
         Simulate in octave: tau=75e-6; dt=1/48000; alpha = dt/(tau+dt); freqz([alpha],[1 -(1-alpha)])
     */
-    if (std::isnan(last_output)) last_output = 0.0;
-    for (int i = 0; i < size; i++) {
-        output[i] = last_output = alpha * input[i] + (1 - alpha) * last_output; //this is the simplest IIR LPF
+    for (size_t i = 0; i < size; i++) {
+        size_t channel = i % channels;
+        if (std::isnan(last_output[channel])) last_output[channel] = 0.0f;
+        output[i] = last_output[channel] = alpha * input[i] + (1 - alpha) * last_output[channel];
     }
 }
 

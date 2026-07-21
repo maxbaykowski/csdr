@@ -47,6 +47,7 @@ namespace Csdr {
             T processSample(T* data, size_t index) override;
             T processSample_fmv(T* data, size_t index);
             size_t getOverhead() override;
+            U getTap(size_t index) const { return taps[index]; }
         protected:
             explicit FirFilter(size_t length);
             static size_t filterLength(float transition);

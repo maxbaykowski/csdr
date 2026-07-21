@@ -40,11 +40,12 @@ namespace Csdr {
     template <typename T>
     class FractionalDecimator: public Module<T, T> {
         public:
-            FractionalDecimator(float rate, unsigned int num_poly_points, FirFilter<T, float>* filter = nullptr);
+            FractionalDecimator(float rate, unsigned int num_poly_points, FirFilter<T, float>* filter = nullptr, unsigned int channels = 1);
             ~FractionalDecimator();
             bool canProcess() override;
             void process() override;
         private:
+            T filterSample(T* input, size_t frameIndex, unsigned int channel);
             float where;
             unsigned int num_poly_points; //number of samples that the Lagrange interpolator will use
             float* poly_precalc_denomiator; //while we don't precalculate coefficients here as in a Farrow structure, because it is a fractional interpolator, but we rather precaculate part of the interpolator expression
@@ -53,6 +54,7 @@ namespace Csdr {
             int xilast;
             float rate;
             FirFilter<T, float>* filter;
+            unsigned int channels;
     };
 
 }

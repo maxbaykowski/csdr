@@ -35,17 +35,20 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "fir.hpp"
 #include "filter.hpp"
 
+#include <vector>
+
 namespace Csdr {
 
     class WfmDeemphasis: public AnyLengthModule<float, float> {
         public:
-            WfmDeemphasis(unsigned int sampleRate, float tau);
+            WfmDeemphasis(unsigned int sampleRate, float tau, unsigned int channels = 1);
         protected:
             void process(float* input, float* output, size_t size) override;
         private:
             float dt;
             float alpha;
-            float last_output = 0.0f;
+            unsigned int channels;
+            std::vector<float> last_output;
     };
 
     class NfmDeephasis: public FilterModule<float> {

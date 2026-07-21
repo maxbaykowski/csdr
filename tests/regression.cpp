@@ -47,7 +47,7 @@ class TestWriter: public Writer<T> {
 
 class TestableWfmDeemphasis: public WfmDeemphasis {
     public:
-        TestableWfmDeemphasis(unsigned int sampleRate, float tau): WfmDeemphasis(sampleRate, tau) {}
+        TestableWfmDeemphasis(unsigned int sampleRate, float tau, unsigned int channels = 1): WfmDeemphasis(sampleRate, tau, channels) {}
         using WfmDeemphasis::process;
 };
 
@@ -167,6 +167,26 @@ static bool test_wfm_deemphasis_low_tau_stays_stable() {
     deemphasis32us.process(input.data(), output.data(), input.size());
     if (!std::isfinite(output.back()) || output.back() < 0.9f || output.back() > 1.0f) {
         std::cerr << "deemphasis regression: 32 us WFM deemphasis is unstable or has the wrong DC gain\n";
+        return false;
+    }
+
+    return true;
+}
+
+static bool test_wfm_deemphasis_stereo_preserves_channels() {
+    TestableWfmDeemphasis deemphasis(48000, 50e-6f, 2);
+    std::vector<float> input(4096 * 2);
+    std::vector<float> output(input.size(), 0.0f);
+
+    for (size_t i = 0; i < input.size() / 2; i++) {
+        input[2 * i] = 1.0f;
+        input[2 * i + 1] = 0.0f;
+    }
+
+    deemphasis.process(input.data(), output.data(), input.size());
+
+    if (output.back() != 0.0f || output[output.size() - 2] < 0.9f) {
+        std::cerr << "deemphasis regression: stereo WFM deemphasis mixed channel state\n";
         return false;
     }
 
@@ -386,14 +406,47 @@ static bool test_stereofm_decoder_recovers_channels() {
     return true;
 }
 
+static bool test_fractionaldecimator_stereo_preserves_channels() {
+    FractionalDecimator<float> decimator(2.0f, 12, nullptr, 2);
+    std::vector<float> input(400);
+    for (size_t i = 0; i < input.size() / 2; i++) {
+        input[2 * i] = static_cast<float>(i);
+        input[2 * i + 1] = static_cast<float>(1000 + i);
+    }
+
+    MemoryReader<float> reader(input.data(), input.size());
+    TestWriter<float> writer(400);
+    decimator.setReader(&reader);
+    decimator.setWriter(&writer);
+    while (decimator.canProcess()) {
+        decimator.process();
+    }
+
+    if (writer.collected.size() < 20) {
+        std::cerr << "fractionaldecimator regression: stereo output too short\n";
+        return false;
+    }
+
+    for (size_t i = 0; i < writer.collected.size() / 2; i++) {
+        if (writer.collected[2 * i + 1] - writer.collected[2 * i] < 900.0f) {
+            std::cerr << "fractionaldecimator regression: stereo channels were mixed during decimation\n";
+            return false;
+        }
+    }
+
+    return true;
+}
+
 int main() {
     if (!test_lowpass_single_output_progress()) return EXIT_FAILURE;
     if (!test_fractionaldecimator_prefilter_high_rate_progress()) return EXIT_FAILURE;
     if (!test_nfm_deemphasis_8000_stays_bounded()) return EXIT_FAILURE;
     if (!test_wfm_deemphasis_low_tau_stays_stable()) return EXIT_FAILURE;
+    if (!test_wfm_deemphasis_stereo_preserves_channels()) return EXIT_FAILURE;
     if (!test_bandpass_sideband_selection()) return EXIT_FAILURE;
     if (!test_dcblock_audio_removes_dc()) return EXIT_FAILURE;
     if (!test_dcblock_high_rate_preserves_near_center_tone()) return EXIT_FAILURE;
     if (!test_stereofm_decoder_recovers_channels()) return EXIT_FAILURE;
+    if (!test_fractionaldecimator_stereo_preserves_channels()) return EXIT_FAILURE;
     return EXIT_SUCCESS;
 }

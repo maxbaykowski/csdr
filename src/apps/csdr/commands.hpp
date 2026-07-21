@@ -166,6 +166,7 @@ namespace Csdr {
             float transition = 0.03;
             std::string window = "hamming";
             bool prefilter = false;
+            unsigned int channels = 1;
     };
 
     class AdpcmCommand: public Command {
@@ -218,6 +219,7 @@ namespace Csdr {
         private:
             unsigned int sampleRate;
             float tau = 50e-6;
+            unsigned int channels = 1;
     };
 
     class GainCommand: public Command {

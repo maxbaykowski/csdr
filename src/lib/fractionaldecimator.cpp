@@ -34,14 +34,15 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 using namespace Csdr;
 
 template <typename T>
-FractionalDecimator<T>::FractionalDecimator(float rate, unsigned int num_poly_points, FirFilter<T, float> *filter):
+FractionalDecimator<T>::FractionalDecimator(float rate, unsigned int num_poly_points, FirFilter<T, float> *filter, unsigned int channels):
     num_poly_points(num_poly_points &~ 1),
     poly_precalc_denomiator((float*) malloc(this->num_poly_points * sizeof(float))),
     xifirst(-(this->num_poly_points / 2) + 1),
     xilast(this->num_poly_points / 2),
     coeffs_buf((float*) malloc(this->num_poly_points * sizeof(float))),
     rate(rate),
-    filter(filter)
+    filter(filter),
+    channels(channels == 0 ? 1 : channels)
 {
     int id = 0; //index in poly_precalc_denomiator
     for (int xi = xifirst; xi <= xilast; xi++) {
@@ -65,12 +66,33 @@ FractionalDecimator<T>::~FractionalDecimator() {
 template <typename T>
 bool FractionalDecimator<T>::canProcess() {
     std::lock_guard<std::mutex> lock(this->processMutex);
+    size_t availableFrames = this->reader->available() / channels;
+    size_t writeableFrames = this->writer->writeable() / channels;
     size_t size = std::min(
-        this->reader->available(),
-        static_cast<size_t>(ceil(static_cast<double>(this->writer->writeable()) * rate))
+        availableFrames,
+        static_cast<size_t>(ceil(static_cast<double>(writeableFrames) * rate))
     );
     size_t filterLen = filter != nullptr ? filter->getOverhead() : 0;
     return ceilf(where) + num_poly_points + filterLen < size;
+}
+
+template <typename T>
+T FractionalDecimator<T>::filterSample(T* input, size_t frameIndex, unsigned int channel) {
+    if (filter == nullptr) {
+        return input[frameIndex * channels + channel];
+    }
+
+    if (channels == 1) {
+        SparseView<T> sparse = filter->sparse(input);
+        return sparse[frameIndex];
+    }
+
+    T acc = 0;
+    auto* fir = static_cast<FirFilter<T, float>*>(filter);
+    for (size_t tap = 0; tap <= fir->getOverhead(); tap++) {
+        acc += input[(frameIndex + tap) * channels + channel] * fir->getTap(tap);
+    }
+    return acc;
 }
 
 template <typename T>
@@ -81,9 +103,11 @@ void FractionalDecimator<T>::process() {
     //The pre-filter can be switched off by applying filter = nullptr.
     int oi = 0; //output index
     int index_high;
+    size_t availableFrames = this->reader->available() / channels;
+    size_t writeableFrames = this->writer->writeable() / channels;
     size_t size = std::min(
-        this->reader->available(),
-        static_cast<size_t>(ceil(static_cast<double>(this->writer->writeable()) * rate))
+        availableFrames,
+        static_cast<size_t>(ceil(static_cast<double>(writeableFrames) * rate))
     );
     size_t filterLen = filter != nullptr ? filter->getOverhead() : 0;
     T* input = this->reader->getReadPointer();
@@ -101,18 +125,14 @@ void FractionalDecimator<T>::process() {
             }
             id++;
         }
-        T acc = 0;
-        if (filter != nullptr) {
+        for (unsigned int channel = 0; channel < channels; channel++) {
+            T acc = 0;
             for (int i = 0; i < num_poly_points; i++) {
-                SparseView<T> sparse = filter->sparse(input);
-                acc += (coeffs_buf[i] / poly_precalc_denomiator[i]) * sparse[index + i];
+                acc += (coeffs_buf[i] / poly_precalc_denomiator[i]) * filterSample(input, index + i, channel);
             }
-        } else {
-            for (int i = 0; i < num_poly_points; i++) {
-                acc += (coeffs_buf[i] / poly_precalc_denomiator[i]) * input[index + i];
-            }
+            output[oi * channels + channel] = acc;
         }
-        output[oi++] = acc;
+        oi++;
         where += rate;
     }
 
@@ -122,8 +142,8 @@ void FractionalDecimator<T>::process() {
     );
     where -= input_processed;
 
-    this->reader->advance(input_processed);
-    this->writer->advance(oi);
+    this->reader->advance(input_processed * channels);
+    this->writer->advance(oi * channels);
 }
 
 namespace Csdr {

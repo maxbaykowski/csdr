@@ -280,9 +280,11 @@ It is an FM demodulator that is based on the quadri-correlator method, and it ca
 
 Syntax: 
 
-    csdr deemphasis [--wfm|--nfm] <sample_rate> [tau]
+    csdr deemphasis [--wfm|--nfm] <sample_rate> [tau] [--channels=1]
 
 When used in `--wfm` mode, it performs de-emphasis with the given RC time constant `tau`.
+
+For interleaved stereo float audio, set `--channels=2` so left and right are filtered independently.
 
 Different parts of the world use different pre-emphasis filters for FM broadcasting: In Europe, `tau` should be chosen as `50e-6`, and in the USA, `tau` should be `75e-6`.
 
@@ -326,13 +328,15 @@ To avoid aliasing, it runs a filter on the signal and removes spectral component
 
 Syntax: 
 
-    csdr fractionaldecimator <decimation_rate> [--format=(complex|float)] [--numpoly=12] [--transition=0.0e] [--window=hamming] [--prefilter]
+    csdr fractionaldecimator <decimation_rate> [--format=(complex|float)] [--numpoly=12] [--transition=0.0e] [--channels=1] [--window=hamming] [--prefilter]
 
 It can decimate by a floating point ratio.
 
 It uses Lagrange interpolation, where `numpoly` (12 by default) input samples are taken into consideration while calculating one output sample.
 
 This function is available for both complex and real data, `--format` to switch. Possible arguments: `complex` and `float`.
+
+For interleaved stereo float audio, set `--channels=2` so each channel is decimated independently.
 
 It can filter the signal with an anti-aliasing FIR filter before applying the Lagrange interpolation. This filter is inactive by default, but can be activated by:
 
